@@ -1,0 +1,42 @@
+The goal of this part is to get familiar with gdb. And notice that how it handl\
+e the overflow due to multiplication
+throught walking into machine code for the Ftimes function.
+
+$ gdb ~eggert/bin64/bin/emacs-25.2
+This command launches gdb in the folder emacs. We use this command to enter the\
+ debugger and use the Elisp language of the compiler.
+
+(gdb) break Ftimes
+This command is to set the breakpoint at the function which uses multiplication\
+. We do this because we want to trace through the machine code in Ftimes and try
+to understand what actually happens in that function.
+
+(gdb) r -Q -batch -eval '(print (* 1250284240 -1844255039))'
+This runs the function to multiply the number in that quotient.
+
+(gdb) set disassemble-next-line on
+This let us stepping into each instruction with the assembly code. I did this at the very start because
+I want to see the disassemble code.
+
+(gdb) disas
+Every now and then we would use the simple disassemble instruction which just dumps out the disassembled
+version of the machine code with an arrow pointing to the machine line we're at in the debugging process.
+Note that it does not give me the hex representation of machine code.
+
+(gdb) si
+steps through each line of machine instruction which also steps into functions when they appear. This gives us
+the diassembly version and hexa representation.
+
+(gdb) info registers
+information about a register
+
+What I did for trace.tr was
+gdb ~eggert/bin64/bin/emacs-25.2
+break Ftimes
+r -Q -batch -eval '(print (* 1250284240 -1844255039))'
+set disassemble-next-line on
+disas
+si
+info registers
+
+repeat si and info registers until we hit the pop and return.  

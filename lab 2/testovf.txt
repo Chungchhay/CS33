@@ -1,0 +1,79 @@
+-o2
+ .file   "testovf.c”
+        .text
+        .p2align 4,,15
+        .globl  testovf
+        .type   testovf, @function
+testovf:
+        xorl    %eax, %eax
+	ret
+	.size   testovf, .-testovf
+	.ident  "GCC: (GNU) 6.3.0"
+        .section        .note.GNU-stack,"",@progbits
+
+Gcc flag -o2 is the level of optimization code 2, it is the high of optimization. The compiler will ignore
+the overflow because it assumes that the sum of those 2 numbers is always greater than either of the numbers.
+n + 9223372036854775807 < n is always false. It will just return 0 with XORing itself. 
+
+-O2 -fwrapv,
+
+      .file   "testovf.c"
+        .text
+        .p2align 4,,15
+        .globl  testovf
+        .type   testovf, @function
+testovf:
+        movabsq $9223372036854775807, %rax
+	addq    %rdi, %rax
+	cmpq    %rax, %rdi
+	setg    %al
+        ret
+        .size   testovf, .-testovf
+        .ident  "GCC: (GNU) 6.3.0"
+	.section        .note.GNU-stack,"",@progbits
+
+Gcc flag -o2 -fwrapv is always wrap even the overflow is occured.  This produces relatively 
+short machine code, but longer than simply -O2 since it has to actually wrap and deal with an overflow.
+Above code, a long value stores into %rax and add it with %rdi which causes overflow, but the compiler 
+wrap around and give back a small value in %rax. It then compares with %rdi, and then evaluates. 
+It evaluates to be 1 or true as the overflow flag is put in %rax and then the function returns. 
+
+-o2 -fsanitize=undefined
+
+        .text
+        .p2align 4,,15
+        .globl  testovf
+        .type   testovf, @function
+testovf:
+        pushq   %rbp
+        pushq   %rbx
+        movabsq $9223372036854775807, %rdx
+        movq    %rdi, %rbp
+        movq    %rdi, %rbx
+        subq    $8, %rsp
+        addq    %rdx, %rbp
+        jo      .L6
+.L2:
+        cmpq    %rbp, %rbx
+        setg    %al
+        addq    $8, %rsp
+        popq    %rbx
+        popq    %rbp
+        ret
+.L6:
+        movq    %rdi, %rsi
+        movl    $.Lubsan_data0, %edi
+        call    __ubsan_handle_add_overflow
+        jmp     .L2
+        .size   testovf, .-testovf
+        .section        .rodata.str1.1,"aMS",@progbits,1
+
+Gcc -o2 -fsanitize=undefined is an undefined behavior which print out error message during run time and continue
+with execution when it detects some kind of behaviour that is undefined by the C standard, which include 
+overflows. Above code, the machine instruction pushes %rbp %rbx into a stack frame, then move a long number 
+into %rdx. %rsp also allocates 8bytes in the stacks. Then %rdx add with %rbp. Check overflow flag to jump if OF
+flag sets to 1. In this case we have overflow. In .L6, it moves ubsan (undefined behaviour sanitized) data and 
+call ubsan function that will print out the error message. In .L2,compare the summation result and set the lower
+8 bits to the result of boolean expression. .L2 handles the computation based on compiler behavior that could be
+wrap or trap. 
+ 

@@ -1,0 +1,49 @@
+1. 0x0000000000547920 <arith_driver+336>:	48 8d 04 ad 02 00 00 00	lea    0x2(,%rbp,4),%rax 
+This instruction causes the problem causing incorrect result. I noticed that when rbp= 0xb38e48c71bd31c6f, 
+it causes overflow. 
+
+2. Analyze the source code in the data.c, I notice that most-negative-fixnum is defined on line 
+   DEFVAR_LISP ("most-negative-fixnum", Vmost_negative_fixnum, doc: /* The smallest value that is representable in a Lisp integer. */);
+
+   This references the varaiable MOST_NEGATIVE_FIXNUM, which is located on line 831 in the lisp.h:
+
+   #define MOST_NEGATIVE_FIXNUM (-1 - MOST_POSITIVE_FIXNUM)
+
+Since the MOST_POSITIVE_FIXNUM is 2305843009213693951, I do the 2's complement in binary, but in this case I negate it 
+and subtract by 1 which is -2305843009213693952. 
+That is why emacs -Q -batch -eval '(print most-negative-fixnum)' outputs -2305843009213693952
+
+3. The shell command emacs -Q -batch -eval '(print (* most-positive-fixnum most-positive-fixnum most-positive-fixnum most-positive-fixnum))' outputs only 1 because in data.c, the function will mask the result with an INTMASK if
+a multiplication overflows. accum = ab & INTMASK;
+
+Within 'lisp.h', I notice that INTMASK is (EMACS_INT_MAX >> (INTTYPEBITS - 1)), which is 0x3fffffffffffffff. 
+The multiplication between the 2 most positive fixnum overflows, the result of wrapv is 0xc000000000000001, and
+it with 0x3fffffffffffffff, gives us 0x1, in decimal 1. 
+
+4. If it has -fwrapv, I would not check the overflow checks because running it under fwrapv will automatically allow for overflow to take place. This will not produce any compilation/runtime errors or any error with the machine code. But it
+will not give the result correctly as well because the overflow occurs and wrap around the result. 
+
+5. First I did gdb ~eggert/bin64/bin/emacs-25.2. Then 
+r -Q -batch -eval '(print (format-time-string "%Y-%m-%d %H:%M:%S %Z" nil (concat (make-string 1000 ?X) “0”)))’
+
+The program stop by saying “Program received signal SIGSEGV, Segmentation fault.”
+0x00007ffff173949b in __strcpy_sse2_unaligned () from /lib64/libc.so.6
+=> 0x00007ffff173949b <__strcpy_sse2_unaligned+411>:	f3 0f 7f 7f f0	movdqu %xmm7,-0x10(%rdi)
+
+Note that %xmm7 is a lower 16 bytes register of yumm7 register 64 bytes that deal
+ with floating point as described in the floating point session in the book. 
+movdqu means move unaligned double quadword. 
+
+Basically, movdqu %xmm7,-0x10(%rdi) means move unaligned double quadword into 
+&rdi - 0x10. 
+
+The reason why the program gives segmentation fault is because one of the argument is 
+either zero or null. Meaning we are trying to access something in %xmm7 register without
+having a specific value in it. To see if the argument is empty or not, I used the 
+backtrace to find where the issue is. Then I used si and info register to see where the 
+null value is. When I did (gdb) info register rdi, I got:
+rdi            0xb	11, then I ran:
+(gdb) x/x 0x149b00a
+
+It gives me this, 0x149b00a:	Cannot access memory at address 0x419b00a.
+I think this is where the problem comes from since I cannot access 0xb memory. 
